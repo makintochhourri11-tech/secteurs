@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Secteurs — contrôle des tournées</title>
+<!-- Mode « app » plein écran quand ajoutée à l'écran d'accueil iPhone -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Secteurs">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#272c36">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+  :root { --vert:#1a9850; --rouge:#d73027; --bleu:#2b6cb0; --bg:#1e222a; --pan:#272c36; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; font-family: system-ui, sans-serif; }
+  #carte { position:absolute; inset:0; }
+  #barre { position:absolute; z-index:1000; top:0; left:0; right:0; background:var(--pan);
+           color:#eee; display:flex; flex-wrap:wrap; gap:6px; padding:8px; align-items:center; }
+  #barre select, #barre button { font-size:15px; padding:8px 10px; border-radius:8px; border:0; }
+  #barre button { background:#3a4150; color:#fff; }
+  #barre button.actif { background:var(--bleu); }
+  #barre .compteur { margin-left:auto; font-weight:700; }
+  #aide { position:absolute; z-index:1000; bottom:10px; left:10px; right:10px; background:rgba(0,0,0,.72);
+          color:#fff; padding:10px 12px; border-radius:10px; font-size:14px; display:none; }
+  .btn-rond { position:absolute; z-index:1000; right:12px; bottom:70px; width:54px; height:54px;
+              border-radius:50%; background:var(--bleu); color:#fff; border:0; font-size:22px; }
+</style>
+</head>
+<body>
+<div id="barre">
+  <select id="selSecteur" title="Secteur actif"></select>
+  <button id="btnNouveau">+ Secteur</button>
+  <button id="btnPoint">+ Rue</button>
+  <button id="btnFini" style="display:none">Terminer</button>
+  <button id="btnExport" title="Sauvegarder un fichier">⤓</button>
+  <button id="btnImport" title="Charger un fichier">⤒</button>
+  <span class="compteur" id="compteur">—</span>
+</div>
+<div id="carte"></div>
+<button class="btn-rond" id="btnMoi" title="Ma position">◎</button>
+<div id="aide"></div>
+<input type="file" id="fichier" accept="application/json" style="display:none">
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+// ---------- État persistant ----------
+// secteurs : [{ id, nom, contour:[[lat,lng]...], points:[{id,lat,lng,nom,fait}] }]
+const CLE = "secteurs-tournees-v1";
+let data = charger();
+let secteurActif = data.secteurs[0]?.id || null;
+let mode = "nav";           // nav | tracer | point
+let brouillonContour = [];  // sommets en cours de tracé
+
+function charger() {
+  try { const d = JSON.parse(localStorage.getItem(CLE)); if (d && d.secteurs) return d; } catch(e){}
+  return { secteurs: [] };
+}
+function sauver() { try { localStorage.setItem(CLE, JSON.stringify(data)); } catch(e){} }
+function secteur() { return data.secteurs.find(s => s.id === secteurActif) || null; }
+function id() { return "s" + Math.floor(performance.now()*1000) + "-" + (data.secteurs.length); }
+
+// ---------- Carte ----------
+const carte = L.map("carte", { zoomControl:true }).setView([46.6, 2.4], 6); // France par défaut, recentré sur le GPS
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 19, attribution: "© OpenStreetMap"
+}).addTo(carte);
+
+let coucheSecteur = L.layerGroup().addTo(carte); // contour + points du secteur actif
+let coucheBrouillon = L.layerGroup().addTo(carte);
+let moiMarqueur = null, moiCercle = null, suivre = true;
+
+// ---------- Rendu ----------
+function rendre() {
+  coucheSecteur.clearLayers();
+  const s = secteur();
+  // sélecteur
+  const sel = document.getElementById("selSecteur");
+  sel.innerHTML = data.secteurs.map(x =>
+    `<option value="${x.id}" ${x.id===secteurActif?"selected":""}>${echap(x.nom)}</option>`).join("")
+    || `<option value="">(aucun secteur)</option>`;
+  if (!s) { document.getElementById("compteur").textContent = "—"; return; }
+
+  if (s.contour.length >= 3) {
+    L.polygon(s.contour, { color:"#2b6cb0", weight:3, fillOpacity:0.06 }).addTo(coucheSecteur);
+  }
+  let faits = 0;
+  s.points.forEach(p => {
+    if (p.fait) faits++;
+    const m = L.circleMarker([p.lat, p.lng], {
+      radius:9, color:"#000", weight:1, fillColor: p.fait ? "var(--vert)" : "var(--rouge)",
+      fillOpacity:1
+    }).addTo(coucheSecteur);
+    m.bindTooltip((p.nom||"") + (p.fait ? " ✓" : ""), {direction:"top"});
+    m.on("click", (e) => { L.DomEvent.stop(e); p.fait = !p.fait; sauver(); rendre(); });
+  });
+  document.getElementById("compteur").textContent = `${faits}/${s.points.length} faites`;
+}
+
+function echap(t){ return (t||"").replace(/[<>&"]/g, c=>({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;"}[c])); }
+function aide(txt){ const a=document.getElementById("aide"); if(!txt){a.style.display="none";return;} a.textContent=txt; a.style.display="block"; }
+
+// ---------- GPS ----------
+function demarrerGPS() {
+  if (!navigator.geolocation) { aide("GPS indisponible sur cet appareil/navigateur."); return; }
+  navigator.geolocation.watchPosition(pos => {
+    const { latitude:la, longitude:lo, accuracy:acc } = pos.coords;
+    if (!moiMarqueur) {
+      moiMarqueur = L.circleMarker([la,lo], {radius:7, color:"#fff", weight:2, fillColor:"#2b6cb0", fillOpacity:1}).addTo(carte);
+      moiCercle = L.circle([la,lo], {radius:acc, color:"#2b6cb0", weight:1, fillOpacity:0.08}).addTo(carte);
+      carte.setView([la,lo], 17);
+    } else {
+      moiMarqueur.setLatLng([la,lo]); moiCercle.setLatLng([la,lo]).setRadius(acc);
+      if (suivre) carte.panTo([la,lo]);
+    }
+  }, err => aide("Position refusée/indisponible ("+err.message+"). Le GPS exige HTTPS ou localhost."),
+     { enableHighAccuracy:true, maximumAge:2000, timeout:15000 });
+}
+
+// ---------- Interactions carte ----------
+carte.on("click", (e) => {
+  if (mode === "tracer") {
+    brouillonContour.push([e.latlng.lat, e.latlng.lng]);
+    coucheBrouillon.clearLayers();
+    brouillonContour.forEach(c => L.circleMarker(c,{radius:5,color:"#2b6cb0",fillColor:"#2b6cb0",fillOpacity:1}).addTo(coucheBrouillon));
+    if (brouillonContour.length>=2) L.polyline(brouillonContour,{color:"#2b6cb0",dashArray:"4"}).addTo(coucheBrouillon);
+  } else if (mode === "point") {
+    const s = secteur(); if (!s) { aide("Choisis ou crée d'abord un secteur."); return; }
+    const nom = prompt("Nom de la rue / du point à contrôler :", "") || "";
+    s.points.push({ id:id()+"p"+s.points.length, lat:e.latlng.lat, lng:e.latlng.lng, nom, fait:false });
+    sauver(); rendre();
+  }
+});
+carte.on("dragstart", () => { suivre = false; });
+
+// ---------- Boutons ----------
+const b = (i)=>document.getElementById(i);
+b("btnMoi").onclick = () => { suivre = true; if (moiMarqueur) carte.setView(moiMarqueur.getLatLng(), 17); };
+
+b("btnNouveau").onclick = () => {
+  mode = "tracer"; brouillonContour = []; coucheBrouillon.clearLayers();
+  b("btnFini").style.display = ""; b("btnNouveau").classList.add("actif"); b("btnPoint").disabled = true;
+  aide("Tracé du secteur : touche la carte pour poser les coins du contour, puis « Terminer ».");
+};
+b("btnFini").onclick = () => {
+  if (brouillonContour.length >= 3) {
+    const nom = prompt("Nom du secteur :", "Secteur " + (data.secteurs.length+1)) || ("Secteur "+(data.secteurs.length+1));
+    const s = { id:id(), nom, contour:brouillonContour.slice(), points:[] };
+    data.secteurs.push(s); secteurActif = s.id; sauver();
+  } else { aide("Il faut au moins 3 points pour un secteur. Annulé."); }
+  mode = "nav"; brouillonContour = []; coucheBrouillon.clearLayers();
+  b("btnFini").style.display = "none"; b("btnNouveau").classList.remove("actif"); b("btnPoint").disabled = false;
+  setTimeout(()=>aide(null), 2500); rendre();
+};
+b("btnPoint").onclick = () => {
+  if (!secteur()) { aide("Choisis ou crée d'abord un secteur."); return; }
+  mode = (mode==="point") ? "nav" : "point";
+  b("btnPoint").classList.toggle("actif", mode==="point");
+  aide(mode==="point" ? "Touche la carte pour poser une rue/point à contrôler. Touche un point pour basculer fait ✓ / à faire." : null);
+};
+b("selSecteur").onchange = (e) => { secteurActif = e.target.value; rendre(); };
+
+b("btnExport").onclick = () => {
+  const blob = new Blob([JSON.stringify(data,null,1)], {type:"application/json"});
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+  a.download = "secteurs.json"; a.click();
+};
+b("btnImport").onclick = () => b("fichier").click();
+b("fichier").onchange = (e) => {
+  const f = e.target.files[0]; if(!f) return;
+  const r = new FileReader();
+  r.onload = () => { try { const d = JSON.parse(r.result); if (d.secteurs){ data = d; secteurActif = d.secteurs[0]?.id||null; sauver(); rendre(); aide("Secteurs chargés."); setTimeout(()=>aide(null),2000);} } catch(err){ aide("Fichier invalide."); } };
+  r.readAsText(f);
+};
+
+// ---------- Démarrage ----------
+rendre();
+demarrerGPS();
+if (!data.secteurs.length) aide("Bienvenue. 1) « + Secteur » pour tracer un contour. 2) « + Rue » pour poser les points à contrôler. 3) touche un point pour le cocher fait ✓.");
+</script>
+</body>
+</html>

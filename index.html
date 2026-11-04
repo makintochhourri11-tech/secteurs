@@ -114,8 +114,13 @@ function demarrerGPS() {
       moiMarqueur.setLatLng([la,lo]); moiCercle.setLatLng([la,lo]).setRadius(acc);
       if (suivre) carte.panTo([la,lo]);
     }
-  }, err => aide("Position refusée/indisponible ("+err.message+"). Le GPS exige HTTPS ou localhost."),
-     { enableHighAccuracy:true, maximumAge:2000, timeout:15000 });
+  }, err => {
+    if (!window.isSecureContext) { aide("Le GPS exige HTTPS. Ouvre bien l'adresse en ligne (https://…), pas un fichier local."); return; }
+    if (err.code === 1) { aide("Localisation REFUSÉE. Sur iPhone : Réglages → Confidentialité et sécurité → Service de localisation → Safari → « Lors de l'utilisation » + « Position précise », puis RECHARGE cette page."); return; }
+    if (err.code === 2) { aide("Position indisponible (pas de signal GPS). Essaie à l'extérieur / réessaie."); return; }
+    if (err.code === 3) { aide("Le GPS met trop de temps. Touche « ◎ Ma position » pour réessayer."); return; }
+    aide("GPS : " + err.message);
+  }, { enableHighAccuracy:true, maximumAge:2000, timeout:15000 });
 }
 
 // ---------- Interactions carte ----------

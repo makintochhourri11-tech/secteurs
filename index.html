@@ -22,6 +22,7 @@
   #barre button { background:#3a4150; color:#fff; }
   #barre button.actif { background:var(--bleu); }
   #barre .compteur { margin-left:auto; font-weight:700; }
+  #barre #adresse { flex-basis:100%; width:100%; font-size:13px; color:#cfe3ff; padding:3px 2px 0; }
   #aide { position:absolute; z-index:1000; bottom:10px; left:10px; right:10px; background:rgba(0,0,0,.72);
           color:#fff; padding:10px 12px; border-radius:10px; font-size:14px; display:none; }
   .btn-rond { position:absolute; z-index:1000; right:12px; bottom:70px; width:54px; height:54px;
@@ -37,6 +38,7 @@
   <button id="btnExport" title="Sauvegarder un fichier">⤓</button>
   <button id="btnImport" title="Charger un fichier">⤒</button>
   <span class="compteur" id="compteur">—</span>
+  <div id="adresse">📍 touche ◎ pour afficher ton adresse</div>
 </div>
 <div id="carte"></div>
 <button class="btn-rond" id="btnMoi" title="Ma position">◎</button>
@@ -101,7 +103,21 @@ function rendre() {
 function echap(t){ return (t||"").replace(/[<>&"]/g, c=>({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;"}[c])); }
 function aide(txt){ const a=document.getElementById("aide"); if(!txt){a.style.display="none";return;} a.textContent=txt; a.style.display="block"; }
 
-// ---------- GPS ----------
+// ---------- GPS + adresse ----------
+let dernierGeo = 0;
+async function montrerAdresse(la, lo) {
+  const el = document.getElementById("adresse"); if (!el) return;
+  const now = Date.now(); if (now - dernierGeo < 3000) return; dernierGeo = now; // respecter Nominatim
+  el.textContent = "📍 recherche de l'adresse…";
+  try {
+    const r = await fetch("https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=18&addressdetails=1&lat="+la+"&lon="+lo, { headers:{Accept:"application/json"} });
+    const d = await r.json(); const a = d.address || {};
+    const rue = a.road || a.pedestrian || a.footway || a.neighbourhood || a.suburb || "";
+    const num = a.house_number ? a.house_number + " " : "";
+    const ville = a.city || a.town || a.village || a.municipality || "";
+    el.textContent = "📍 " + ((num+rue) || d.display_name || "adresse inconnue") + (ville ? " — " + ville : "");
+  } catch(e) { el.textContent = "📍 adresse indisponible (réseau ?)"; }
+}
 function demarrerGPS() {
   if (!navigator.geolocation) { aide("GPS indisponible sur cet appareil/navigateur."); return; }
   if (watchId !== null) { navigator.geolocation.clearWatch(watchId); }
@@ -113,6 +129,7 @@ function demarrerGPS() {
       moiMarqueur = L.circleMarker([la,lo], {radius:7, color:"#fff", weight:2, fillColor:"#2b6cb0", fillOpacity:1}).addTo(carte);
       moiCercle = L.circle([la,lo], {radius:acc, color:"#2b6cb0", weight:1, fillOpacity:0.08}).addTo(carte);
       carte.setView([la,lo], 17);
+      montrerAdresse(la, lo);
     } else {
       moiMarqueur.setLatLng([la,lo]); moiCercle.setLatLng([la,lo]).setRadius(acc);
       if (suivre) carte.panTo([la,lo]);
@@ -144,7 +161,7 @@ carte.on("dragstart", () => { suivre = false; });
 
 // ---------- Boutons ----------
 const b = (i)=>document.getElementById(i);
-b("btnMoi").onclick = () => { suivre = true; if (moiMarqueur) carte.setView(moiMarqueur.getLatLng(), 17); else demarrerGPS(); };
+b("btnMoi").onclick = () => { suivre = true; if (moiMarqueur) { const p = moiMarqueur.getLatLng(); carte.setView(p, 17); montrerAdresse(p.lat, p.lng); } else demarrerGPS(); };
 
 b("btnNouveau").onclick = () => {
   mode = "tracer"; brouillonContour = []; coucheBrouillon.clearLayers();

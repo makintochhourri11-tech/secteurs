@@ -69,7 +69,7 @@ L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
 
 let coucheSecteur = L.layerGroup().addTo(carte); // contour + points du secteur actif
 let coucheBrouillon = L.layerGroup().addTo(carte);
-let moiMarqueur = null, moiCercle = null, suivre = true;
+let moiMarqueur = null, moiCercle = null, suivre = true, watchId = null;
 
 // ---------- Rendu ----------
 function rendre() {
@@ -104,8 +104,11 @@ function aide(txt){ const a=document.getElementById("aide"); if(!txt){a.style.di
 // ---------- GPS ----------
 function demarrerGPS() {
   if (!navigator.geolocation) { aide("GPS indisponible sur cet appareil/navigateur."); return; }
-  navigator.geolocation.watchPosition(pos => {
+  if (watchId !== null) { navigator.geolocation.clearWatch(watchId); }
+  aide("Recherche de ta position… (autorise la localisation si on te le demande)");
+  watchId = navigator.geolocation.watchPosition(pos => {
     const { latitude:la, longitude:lo, accuracy:acc } = pos.coords;
+    aide(null);
     if (!moiMarqueur) {
       moiMarqueur = L.circleMarker([la,lo], {radius:7, color:"#fff", weight:2, fillColor:"#2b6cb0", fillOpacity:1}).addTo(carte);
       moiCercle = L.circle([la,lo], {radius:acc, color:"#2b6cb0", weight:1, fillOpacity:0.08}).addTo(carte);
@@ -141,7 +144,7 @@ carte.on("dragstart", () => { suivre = false; });
 
 // ---------- Boutons ----------
 const b = (i)=>document.getElementById(i);
-b("btnMoi").onclick = () => { suivre = true; if (moiMarqueur) carte.setView(moiMarqueur.getLatLng(), 17); };
+b("btnMoi").onclick = () => { suivre = true; if (moiMarqueur) carte.setView(moiMarqueur.getLatLng(), 17); else demarrerGPS(); };
 
 b("btnNouveau").onclick = () => {
   mode = "tracer"; brouillonContour = []; coucheBrouillon.clearLayers();
